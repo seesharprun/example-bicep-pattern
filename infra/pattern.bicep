@@ -8,11 +8,10 @@ param location string = resourceGroup().location
 @description('The tags to apply to the resources. Defaults to an empty object.')
 param tags object = {}
 
-@description('The name of the environment that can be used as part of naming resource convention. Defaults to "webapp".')
-param workloadName string = 'webapp'
-
-@description('The name of the environment. Defaults to "dev".')
-param environmentName string = 'dev'
+@minLength(5)
+@maxLength(19)
+@description('The name of the suffix that is used as part of naming resource convention. Only alphanumeric characters and hyphens are allowed.')
+param nameSuffix string
 
 @description('The principal ID of the deployment identity used to deploy the resources. Defaults to the identity of the deployment principal.')
 param deploymentPrincipalId string = deployer().objectId
@@ -47,9 +46,6 @@ param databasePartitionKeyPath string = '/id'
 @description('The list of environment variables for the service. Defaults to an empty array.')
 param webEnvironmentVariables environmentVarType[] = []
 
-@description('The name of the secret where the database account credential is stored in plain-text. Defaults to "azure-cosmos-db-credential".')
-param credentialSecretName string = 'azure-cosmos-db-credential'
-
 @description('The administrator login for the database. Defaults to "app".')
 param mongoAdminLogin string = 'app'
 
@@ -60,16 +56,16 @@ param mongoAdminPassword string = newGuid()
 module managedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.0' = {
   name: 'user-assigned-managed-identity'
   params: {
-    name: 'id-${workloadName}-${environmentName}-${location}-001'
+    name: 'id${nameSuffix}'
     location: location
     tags: tags
   }
 }
 
-module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = {
+module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = if (databaseType == 'mongodb-ru' || databaseType == 'mongodb-vcore') {
   name: 'key-vault'
   params: {
-    name: 'kv-${workloadName}-${environmentName}-${location}-001'
+    name: 'kv${nameSuffix}'
     location: location
     tags: tags
     enablePurgeProtection: false
@@ -91,7 +87,7 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = {
     secrets: databaseType == 'mongodb-vcore'
       ? [
           {
-            name: credentialSecretName
+            name: 'azure-cosmos-db-connection-string'
             value: replace(
               replace(cosmosMongoCluster.outputs.connectionStringKey, '<user>', mongoAdminLogin),
               '<password>',
@@ -106,7 +102,7 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = {
 module cosmosMongoCluster 'br/public:avm/res/document-db/mongo-cluster:0.1.1' = if (databaseType == 'mongodb-vcore') {
   name: 'cosmos-db-mongodb-vcore-account'
   params: {
-    name: 'cosmnv-${workloadName}-${environmentName}-${location}-001'
+    name: 'cosmnv${nameSuffix}'
     location: location
     tags: tags
     nodeCount: 1
@@ -125,7 +121,7 @@ module cosmosMongoCluster 'br/public:avm/res/document-db/mongo-cluster:0.1.1' = 
 module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = if (databaseType == 'table' || databaseType == 'nosql' || databaseType == 'mongodb-ru') {
   name: 'cosmos-db-account'
   params: {
-    name: 'cosmos-${workloadName}-${environmentName}-${location}-001'
+    name: 'cosmos${nameSuffix}'
     location: location
     locations: [
       {
@@ -190,7 +186,7 @@ module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = i
     ]
     secretsExportConfiguration: databaseType == 'mongodb-ru'
       ? {
-          primaryWriteConnectionStringSecretName: credentialSecretName
+          primaryWriteConnectionStringSecretName: 'azure-cosmos-db-connection-string'
           keyVaultResourceId: keyVault.outputs.resourceId
         }
       : null
@@ -263,7 +259,7 @@ module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = i
 module containerRegistry 'br/public:avm/res/container-registry/registry:0.9.1' = {
   name: 'container-registry'
   params: {
-    name: 'cr${workloadName}${environmentName}${location}001'
+    name: 'cnreg${toLower(replace(nameSuffix, '-', ''))}'
     location: location
     tags: tags
     acrAdminUserEnabled: false
@@ -286,7 +282,7 @@ module containerRegistry 'br/public:avm/res/container-registry/registry:0.9.1' =
 module logAnalyticsWorkspace 'br/public:avm/res/operational-insights/workspace:0.11.1' = {
   name: 'log-analytics-workspace'
   params: {
-    name: 'log-${workloadName}-${environmentName}-${location}-001'
+    name: 'log${nameSuffix}'
     location: location
     tags: tags
   }
@@ -295,7 +291,7 @@ module logAnalyticsWorkspace 'br/public:avm/res/operational-insights/workspace:0
 module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.10.1' = {
   name: 'container-apps-env'
   params: {
-    name: 'cae-${workloadName}-${environmentName}-${location}-001'
+    name: 'cae${nameSuffix}'
     location: location
     tags: tags
     logAnalyticsWorkspaceResourceId: logAnalyticsWorkspace.outputs.resourceId
@@ -307,7 +303,7 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.10.
 module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
   name: 'container-apps-app'
   params: {
-    name: 'ca-${workloadName}-${environmentName}-${location}-001'
+    name: 'ca${nameSuffix}'
     environmentResourceId: containerAppsEnvironment.outputs.resourceId
     location: location
     tags: union(tags, { 'azd-service-name': webServiceName })
@@ -328,40 +324,46 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
         identity: managedIdentity.outputs.resourceId
       }
     ]
-    secrets: [
-      {
-        name: 'user-assigned-managed-identity-client-id'
-        value: managedIdentity.outputs.clientId
-      }
-      {
-        nosql: databaseType == 'nosql'
-          ? {
-              name: credentialSecretName
-              value: cosmosAccount.outputs.endpoint
+    secrets: union(
+      (databaseType == 'nosql' || databaseType == 'table')
+        ? [
+            {
+              name: 'user-assigned-managed-identity-client-id'
+              value: managedIdentity.outputs.clientId
             }
-          : null
-        'mongodb-ru': databaseType == 'mongodb-ru'
-          ? {
-              name: credentialSecretName
-              keyVaultUrl: '${keyVault.outputs.uri}secrets/${credentialSecretName}'
-              identity: managedIdentity.outputs.resourceId
-            }
-          : null
-        'mongodb-vcore': databaseType == 'mongodb-vcore'
-          ? {
-              name: credentialSecretName
-              keyVaultUrl: '${keyVault.outputs.uri}secrets/${credentialSecretName}'
-              identity: managedIdentity.outputs.resourceId
-            }
-          : null
-        table: databaseType == 'table'
-          ? {
-              name: credentialSecretName
-              value: cosmosAccount.outputs.endpoint
-            }
-          : null
-      }[databaseType]
-    ]
+          ]
+        : [],
+      [
+        {
+          nosql: databaseType == 'nosql'
+            ? {
+                name: 'azure-cosmos-db-endpoint'
+                value: cosmosAccount.outputs.endpoint
+              }
+            : null
+          'mongodb-ru': databaseType == 'mongodb-ru'
+            ? {
+                name: 'azure-cosmos-db-connection-string'
+                keyVaultUrl: '${keyVault.outputs.uri}secrets/azure-cosmos-db-connection-string'
+                identity: managedIdentity.outputs.resourceId
+              }
+            : null
+          'mongodb-vcore': databaseType == 'mongodb-vcore'
+            ? {
+                name: 'azure-cosmos-db-connection-string'
+                keyVaultUrl: '${keyVault.outputs.uri}secrets/azure-cosmos-db-connection-string'
+                identity: managedIdentity.outputs.resourceId
+              }
+            : null
+          table: databaseType == 'table'
+            ? {
+                name: 'azure-cosmos-db-endpoint'
+                value: cosmosAccount.outputs.endpoint
+              }
+            : null
+        }[databaseType]
+      ]
+    )
     containers: [
       {
         image: webContainerImage
@@ -371,32 +373,62 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
           memory: '.5Gi'
         }
         env: union(
-          [
-            {
-              name: 'AZURE_CLIENT_ID'
-              secretRef: 'user-assigned-managed-identity-client-id'
-            }
-            {
-              name: 'CONFIGURATION__CREDENTIAL'
-              secretRef: credentialSecretName
-            }
-            {
-              name: 'CONFIGURATION__DATABASENAME'
-              value: databaseName
-            }
-            {
-              name: 'CONFIGURATION__CONTAINERNAME'
-              value: databaseContainerName
-            }
-            {
-              name: 'CONFIGURATION__COLLECTIONNAME'
-              value: databaseContainerName
-            }
-            {
-              name: 'CONFIGURATION__TABLENAME'
-              value: databaseContainerName
-            }
-          ],
+          (databaseType == 'nosql' || databaseType == 'table')
+            ? [
+                {
+                  name: 'AZURE_CLIENT_ID'
+                  secretRef: 'user-assigned-managed-identity-client-id'
+                }
+              ]
+            : [],
+          (databaseType == 'nosql' || databaseType == 'table')
+            ? [
+                {
+                  name: 'CONFIGURATION__ENDPOINT'
+                  secretRef: 'azure-cosmos-db-endpoint'
+                }
+              ]
+            : [],
+          (databaseType == 'mongodb-ru' || databaseType == 'mongodb-vcore')
+            ? [
+                {
+                  name: 'CONFIGURATION__CONNECTIONSTRING'
+                  secretRef: 'azure-cosmos-db-connection-string'
+                }
+              ]
+            : [],
+          (databaseType == 'nosql' || databaseType == 'mongodb-ru' || databaseType == 'mongodb-vcore')
+            ? [
+                {
+                  name: 'CONFIGURATION__DATABASENAME'
+                  value: databaseName
+                }
+              ]
+            : [],
+          databaseType == 'nosql'
+            ? [
+                {
+                  name: 'CONFIGURATION__CONTAINERNAME'
+                  value: databaseContainerName
+                }
+              ]
+            : [],
+          (databaseType == 'mongodb-ru' || databaseType == 'mongodb-vcore')
+            ? [
+                {
+                  name: 'CONFIGURATION__COLLECTIONNAME'
+                  value: databaseContainerName
+                }
+              ]
+            : [],
+          databaseType == 'table'
+            ? [
+                {
+                  name: 'CONFIGURATION__TABLENAME'
+                  value: databaseContainerName
+                }
+              ]
+            : [],
           webEnvironmentVariables
         )
       }
