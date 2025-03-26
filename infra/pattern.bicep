@@ -442,8 +442,8 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
 
 output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
 output databaseAccountEndpoint string = {
-  nosql: databaseType == 'nosql' ? cosmosAccount.outputs.endpoint : null
-  'mongodb-ru': null
-  'mongodb-vcore': null
-  table: databaseType == 'table' ? cosmosAccount.outputs.endpoint : null
+  nosql: databaseType == 'nosql' ? cosmosAccount.outputs.endpoint : ''
+  'mongodb-ru': ''
+  'mongodb-vcore': ''
+  table: databaseType == 'table' ? cosmosAccount.outputs.endpoint : ''
 }[databaseType]
