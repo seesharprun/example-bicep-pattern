@@ -121,7 +121,11 @@ module cosmosMongoCluster 'br/public:avm/res/document-db/mongo-cluster:0.1.1' = 
 module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = if (databaseType == 'table' || databaseType == 'nosql' || databaseType == 'mongodb-ru') {
   name: 'cosmos-db-account'
   params: {
-    name: 'cosmos${nameSuffix}'
+    name: {
+      nosql: 'cosno${nameSuffix}'
+      'mongodb-ru': 'cosmon${nameSuffix}'
+      table: 'costab${nameSuffix}'
+    }[databaseType]
     location: location
     locations: [
       {
