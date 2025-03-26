@@ -1,0 +1,10 @@
+# Azure Developer CLI (AZD)
+.azure
+azure.yaml
+
+# Sample application
+src/
+
+# Sample templates
+infra/**/*.bicep*
+!infra/pattern.bicep
