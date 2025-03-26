@@ -1,0 +1,25 @@
+name: Publish artifacts to GitHub Container Registry
+on:
+  workflow_dispatch:
+jobs:
+  publish:
+    name: Publish Bicep package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Azure CLI script
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az bicep publish --file infra/pattern.bicep --target ghcr.io/${{ github.repository }}/bicep/modules/pattern:latest --force
