@@ -114,7 +114,7 @@ module managedIdentity 'br/public:avm/res/managed-identity/user-assigned-identit
 module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = if (configuration.?data.?type == 'mongodb-ru' || configuration.?data.?type == 'mongodb-vcore') {
   name: 'key-vault'
   params: {
-    name: configuration.?vault.name ?? 'kv-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
+    name: configuration.?vault.?name ?? 'kv-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
     location: location
     tags: tags
     enablePurgeProtection: configuration.?vault.?purgeProtection ?? true
