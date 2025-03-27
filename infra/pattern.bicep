@@ -12,124 +12,94 @@ param tags object = {}
 param deploymentPrincipalId string = deployer().objectId
 
 @description('The configuration of the resources to be deployed.')
-param configuration rootConfigurationType = {
+param configuration configurationType?
+
+@description('The configuration settings for the resources to be deployed.')
+type configurationType = {
+  @description('The configuration for the web application.')
   web: {
-    name: 'ca-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-    tags: {}
-    environment: {
-      name: 'cae-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-    }
-    registry: {
-      name: 'cnreg${resourceGroup().location}${uniqueString(resourceGroup().id)}'
-    }
-    analytics: {
-      name: 'law-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-    }
-    port: 80
-    containerImage: 'nginx:latest'
-    settings: []
-    secrets: []
-  }
-  data: {
-    name: 'cosmo-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-    tags: {}
-    type: 'nosql'
-    database: {
-      name: 'demo'
-    }
+    @description('The name of the web application.')
+    name: string?
+    @description('The tags to apply to the web application.')
+    tags: object?
+    @description('The exposed port for the web application.')
+    port: int?
+    @description('The container configuration for the web application.')
     container: {
-      name: 'example'
-      partitionKeyPath: '/id'
-    }
+      @description('The name of the container instance.')
+      name: string?
+      @description('The container image to use.')
+      image: string?
+      @description('The container resource configuration for the web application.')
+      resources: {
+        @description('The CPU resource for the container.')
+        cpu: int?
+        @description('The memory resource for the container.')
+        memory: string?
+      }?
+    }?
+    settings: environmentVarType[]?
+    secrets: secretType[]?
+    environment: {
+      name: string?
+      zoneRedundant: bool?
+    }?
+    registry: {
+      name: string?
+      sku: ('Basic' | 'Standard' | 'Premium')?
+    }?
+    analytics: {
+      name: string?
+    }?
+    replicas: {
+      min: int?
+      max: int?
+    }?
+  }?
+  @description('The configuration for the data store.')
+  data: {
+    name: string?
+    tags: object?
+    locations: {
+      failoverPriority: int
+      locationName: string
+      isZoneRedundant: bool?
+    }[]?
+    type: ('nosql' | 'mongodb-ru' | 'mongodb-vcore' | 'table')?
+    database: {
+      name: string?
+    }?
+    container: {
+      name: string?
+      partitionKeyPath: string?
+    }?
     collection: {
-      name: 'example'
-    }
+      name: string?
+      indexes: object[]?
+      shardKey: string?
+    }?
     table: {
-      name: 'example'
-    }
-    mongo: {
-      adminLogin: 'app'
-      adminPassword: newGuid()
-    }
-  }
+      name: string?
+    }?
+    cluster: {
+      adminLogin: string?
+      adminPassword: string?
+      sku: string?
+      nodeCount: int?
+      highAvailabilityMode: bool?
+      storage: int?
+    }?
+  }?
+  @description('The configuration for the user-assigned managed identity.')
   identity: {
-    name: 'id-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-  }
+    name: string?
+  }?
+  @description('The configuration for the key vault.')
   vault: {
-    name: 'kv-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
-  }
-}
-
-type rootConfigurationType = {
-  web: webConfigurationType?
-  data: databaseConfigurationType?
-  identity: managedIdentityConfigurationType?
-  vault: keyVaultConfigurationType?
-}
-
-type webConfigurationType = {
-  name: string?
-  tags: object?
-  port: int?
-  containerImage: string?
-  settings: environmentVarType[]?
-  secrets: secretType[]?
-  environment: environmentConfigurationType?
-  registry: registryConfigurationType?
-  analytics: analyticsConfigurationType?
-}
-
-type databaseConfigurationType = {
-  name: string?
-  tags: object?
-  type: ('nosql' | 'mongodb-ru' | 'mongodb-vcore' | 'table')?
-  database: databaseDatabaseConfigurationType?
-  container: databaseContainerConfigurationType?
-  collection: databaseCollectionConfigurationType?
-  table: databaseTableConfigurationType?
-  mongo: databaseMongoConfigurationType?
-}
-
-type registryConfigurationType = {
-  name: string?
-}
-
-type analyticsConfigurationType = {
-  name: string?
-}
-
-type environmentConfigurationType = {
-  name: string?
-}
-
-type databaseDatabaseConfigurationType = {
-  name: string?
-}
-
-type databaseContainerConfigurationType = {
-  name: string?
-  partitionKeyPath: string?
-}
-
-type databaseCollectionConfigurationType = {
-  name: string?
-}
-
-type databaseTableConfigurationType = {
-  name: string?
-}
-
-type databaseMongoConfigurationType = {
-  adminLogin: string?
-  adminPassword: string?
-}
-
-type managedIdentityConfigurationType = {
-  name: string?
-}
-
-type keyVaultConfigurationType = {
-  name: string?
+    name: string?
+    purgeProtection: bool?
+    softDeleteRetentionInDays: int?
+  }?
 }
 
 module managedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.0' = {
@@ -147,10 +117,10 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = if (configuration.?
     name: configuration.?vault.name ?? 'kv-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
     location: location
     tags: tags
-    enablePurgeProtection: false
+    enablePurgeProtection: configuration.?vault.?purgeProtection ?? true
     enableRbacAuthorization: true
     publicNetworkAccess: 'Enabled'
-    softDeleteRetentionInDays: 7
+    softDeleteRetentionInDays: configuration.?vault.?softDeleteRetentionInDays ?? 7
     roleAssignments: [
       {
         principalId: managedIdentity.outputs.principalId
@@ -171,10 +141,10 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.12.1' = if (configuration.?
               replace(
                 cosmosMongoCluster.outputs.connectionStringKey,
                 '<user>',
-                configuration.?data.?mongo.?adminLogin ?? 'app'
+                configuration.?data.?cluster.?adminLogin ?? 'app'
               ),
               '<password>',
-              configuration.?data.?mongo.?adminPassword ?? 'P@ssw.rd'
+              configuration.?data.?cluster.?adminPassword ?? 'P@ssw.rd'
             )
           }
         ]
@@ -188,12 +158,12 @@ module cosmosMongoCluster 'br/public:avm/res/document-db/mongo-cluster:0.1.1' = 
     name: configuration.?data.?name ?? 'cosmo-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
     location: location
     tags: union(tags, configuration.?data.?tags ?? {})
-    nodeCount: 1
-    sku: 'M10'
-    highAvailabilityMode: false
-    storage: 32
-    administratorLogin: configuration.?data.?mongo.?adminLogin ?? 'app'
-    administratorLoginPassword: configuration.?data.?mongo.?adminPassword ?? 'P@ssw.rd'
+    nodeCount: configuration.?data.?cluster.?nodeCount ?? 2
+    sku: configuration.?data.?cluster.?sku ?? 'M30'
+    highAvailabilityMode: configuration.?data.?cluster.?highAvailabilityMode ?? true
+    storage: configuration.?data.?cluster.?storage ?? 128
+    administratorLogin: configuration.?data.?cluster.?adminLogin ?? 'app'
+    administratorLoginPassword: configuration.?data.?cluster.?adminPassword ?? 'P@ssw.rd'
     networkAcls: {
       allowAllIPs: true
       allowAzureIPs: true
@@ -206,7 +176,7 @@ module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = i
   params: {
     name: configuration.?data.?name ?? 'cosmo-${resourceGroup().location}-${uniqueString(resourceGroup().id)}'
     location: location
-    locations: [
+    locations: configuration.?data.?locations ?? [
       {
         failoverPriority: 0
         locationName: location
@@ -302,7 +272,7 @@ module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = i
             collections: [
               {
                 name: configuration.?data.?collection.?name ?? 'example'
-                indexes: [
+                indexes: configuration.?data.?collection.?indexes ?? [
                   {
                     key: {
                       keys: [
@@ -329,7 +299,7 @@ module cosmosAccount 'br/public:avm/res/document-db/database-account:0.11.3' = i
                   }
                 ]
                 shardKey: {
-                  category: 'Hash'
+                  category: configuration.?data.?collection.?shardKey ?? 'Hash'
                 }
               }
             ]
@@ -348,7 +318,7 @@ module containerRegistry 'br/public:avm/res/container-registry/registry:0.9.1' =
     acrAdminUserEnabled: false
     anonymousPullEnabled: false
     publicNetworkAccess: 'Enabled'
-    acrSku: 'Standard'
+    acrSku: configuration.?web.?registry.?sku ?? 'Standard'
     roleAssignments: [
       {
         principalId: deploymentPrincipalId
@@ -379,7 +349,7 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.10.
     tags: tags
     logAnalyticsWorkspaceResourceId: logAnalyticsWorkspace.outputs.resourceId
     publicNetworkAccess: 'Enabled'
-    zoneRedundant: false
+    zoneRedundant: configuration.?web.?environment.?zoneRedundant ?? false
   }
 }
 
@@ -392,9 +362,17 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
     tags: union(tags, configuration.?web.?tags ?? {})
     ingressTargetPort: configuration.?web.?port ?? 80
     ingressExternal: true
+    ingressTransport: 'auto'
+    stickySessionsAffinity: 'sticky'
     scaleSettings: {
-      maxReplicas: 1
-      minReplicas: 1
+      minReplicas: configuration.?web.?replicas.?min ?? 2
+      maxReplicas: configuration.?web.?replicas.?max ?? 3
+    }
+    corsPolicy: {
+      allowCredentials: true
+      allowedOrigins: [
+        '*'
+      ]
     }
     managedIdentities: {
       userAssignedResourceIds: [
@@ -450,11 +428,11 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
     )
     containers: [
       {
-        image: configuration.?web.?containerImage ?? 'nginx:latest'
-        name: 'app'
+        image: configuration.?web.?container.?image ?? 'nginx:latest'
+        name: configuration.?web.?container.?name ?? 'app'
         resources: {
-          cpu: '0.25'
-          memory: '.5Gi'
+          cpu: configuration.?web.?container.?resources.?cpu ?? '0.25'
+          memory: configuration.?web.?container.?resources.?memory ?? '.5Gi'
         }
         env: union(
           (configuration.?data.?type == 'nosql' || configuration.?data.?type == 'table')
@@ -522,8 +500,8 @@ module containerAppsApp 'br/public:avm/res/app/container-app:0.14.1' = {
 
 output containerRegistryLoginServer string = containerRegistry.outputs.loginServer
 output databaseAccountEndpoint string = {
-  nosql: cosmosAccount.outputs.endpoint
-  'mongodb-ru': cosmosAccount.outputs.endpoint
+  nosql: configuration.?data.?type == 'nosql' ? cosmosAccount.outputs.endpoint : ''
+  'mongodb-ru': configuration.?data.?type == 'mongodb-ru' ? cosmosAccount.outputs.endpoint : ''
   'mongodb-vcore': ''
-  table: cosmosAccount.outputs.endpoint
+  table: configuration.?data.?type == 'table' ? cosmosAccount.outputs.endpoint : ''
 }[configuration.?data.?type ?? 'nosql']
