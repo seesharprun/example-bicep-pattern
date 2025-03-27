@@ -349,7 +349,7 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.10.
     tags: tags
     logAnalyticsWorkspaceResourceId: logAnalyticsWorkspace.outputs.resourceId
     publicNetworkAccess: 'Enabled'
-    zoneRedundant: configuration.?web.?environment.?zoneRedundant ?? false
+    zoneRedundant: configuration.?web.?environment.?zoneRedundant ?? true
   }
 }
 
